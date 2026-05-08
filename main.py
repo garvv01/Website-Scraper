@@ -2,8 +2,8 @@ from firecrawl import FirecrawlApp
 from dotenv import load_dotenv
 import os
 import json
-from difflib import SequenceMatcher
 import re
+from difflib import SequenceMatcher
 
 # Load the API key
 
@@ -15,105 +15,231 @@ api_key = os.getenv("FIRECRAWL_API_KEY")
 
 app = FirecrawlApp(api_key=api_key)
 
-# Cleaning function
+# ── Pre-compiled patterns ─────────────────────────────────────────────
+
+_JUNK_PHRASES = re.compile(
+    r'\b('
+    r'cookie[s]?|privacy policy|terms of service|terms & conditions|'
+    r'all rights reserved|subscribe|sign up|sign in|log in|login|log out|'
+    r'apply now|click here|view all|learn more|read more|contact us|'
+    r'follow us|share this|copyright|your browser does not support|'
+    r'get started|buy now|free trial|download now|try for free|'
+    r'get in touch|request a demo|book a demo|schedule a call|'
+    r'back to top|skip to content|skip to main|'
+    r'newsletter|unsubscribe|manage preferences|'
+    r'add to cart|checkout|view cart|place order|'
+    r'powered by|built with|made with'
+    r')\b',
+    re.IGNORECASE
+)
+
+_NAV_LABEL = re.compile(r'^[A-Z][a-zA-Z\s&/\-]{0,30}$')
+
+_HEADING = re.compile(r'^#{1,6}\s+(.+)$')
+
+_DIVIDER = re.compile(r'^[-*_]{3,}\s*$')
+
+_LIST_ITEM = re.compile(r'^[-*+]\s+|^\d+\.\s+')
+
+_NO_WORDS = re.compile(r'^[^a-zA-Z]*$')
+
+_SOCIAL = re.compile(r'@\w+|#\w+')
+
+# ── Helper functions ─────────────────────────────────────────────────
+
+def _word_count(line):
+    return len(line.split())
+
+def _is_nav_label(line):
+    stripped = _LIST_ITEM.sub('', line).strip()
+    words = stripped.split()
+
+    if len(words) == 0 or len(words) > 5:
+        return False
+
+    if re.search(r'[.!?]$', stripped):
+        return False
+
+    return bool(_NAV_LABEL.match(stripped))
+
+def _is_link_cluster_block(lines):
+
+    if len(lines) < 3:
+        return False
+
+    nav_count = sum(
+        1 for l in lines
+        if _is_nav_label(_LIST_ITEM.sub('', l).strip())
+    )
+
+    return nav_count / len(lines) >= 0.6
+
+def _fuzzy_duplicate(line, seen_lines, threshold=0.82):
+
+    for existing in seen_lines:
+
+        similarity = SequenceMatcher(
+            None,
+            line,
+            existing
+        ).ratio()
+
+        if similarity >= threshold:
+            return True
+
+    return False
+
+def _extract_heading_text(line):
+
+    match = _HEADING.match(line)
+
+    return match.group(1) if match else line
+
+# ── Main cleaning function ───────────────────────────────────────────
 
 def clean_markdown(md):
 
-    # Remove Image Markdown
+    # Remove image markdown
     md = re.sub(r'!\[.*?\]\(.*?\)', '', md)
 
     # Remove links but keep text
     md = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', md)
 
-    # Remove extra whitespace
-    md = re.sub(r'\n\s*\n+', '\n\n', md)
+    # Remove raw URLs
+    md = re.sub(r'https?://\S+', '', md)
 
-    # Split into lines
+    # Remove excessive blank lines
+    md = re.sub(r'\n{3,}', '\n\n', md)
+
     lines = md.splitlines()
 
-    cleaned = []
-    seen = set()
+    # Detect nav/footer blocks
+    block_size = 5
+    junk_line_indices = set()
 
-    # Generic junk patterns
-    junk_patterns = [
-        r'cookie',
-        r'privacy policy',
-        r'terms of service',
-        r'all rights reserved',
-        r'subscribe',
-        r'sign up',
-        r'log in',
-        r'login',
-        r'apply now',
-        r'click here',
-        r'view all',
-        r'learn more',
-        r'read more',
-        r'contact us',
-        r'follow us',
-        r'share this',
-        r'copyright',
-        r'your browser does not support',
-    ]
+    for i in range(len(lines) - block_size + 1):
 
-    for line in lines:
+        window = [
+            lines[j].strip()
+            for j in range(i, i + block_size)
+            if lines[j].strip()
+        ]
 
-        line = line.strip()
+        if _is_link_cluster_block(window):
 
+            for j in range(i, i + block_size):
+                junk_line_indices.add(j)
+
+    filtered = []
+
+    seen_exact = set()
+
+    seen_fuzzy = []
+
+    for idx, raw_line in enumerate(lines):
+
+        line = raw_line.strip()
+
+        # Keep paragraph spacing
         if not line:
+            filtered.append('')
+            continue
+
+        # Remove nav/footer clusters
+        if idx in junk_line_indices:
             continue
 
         normalized = line.lower()
 
+        # Remove dividers
+        if _DIVIDER.match(line):
+            continue
+
+        # Remove social spam
+        if len(_SOCIAL.findall(line)) >= 2:
+            continue
+
         # Remove junk phrases
-        if any(re.search(pattern, normalized) for pattern in junk_patterns):
+        if _JUNK_PHRASES.search(normalized):
             continue
 
-        # Remove very short lines
-        if len(line) < 4:
+        # Handle headings
+        if _HEADING.match(line):
+
+            heading_text = _extract_heading_text(line)
+
+            if (
+                _word_count(heading_text) <= 3 and
+                not re.search(r'[.!?]', heading_text)
+            ):
+                continue
+
+            line = heading_text
+
+        # Remove symbol-only lines
+        if _NO_WORDS.match(line):
             continue
 
-        # Remove low letter lines
+        # Remove tiny lines
+        if len(line) < 15 and not re.search(r'\d', line):
+            continue
+
+        # Remove low-letter lines
         if len(re.findall(r'[a-zA-Z]', line)) < 3:
             continue
 
-        # Remove lines with too many symbols
-        symbol_ratio = len(re.findall(r'[^a-zA-Z0-9\s]', line)) / len(line)
+        # Remove symbol-heavy lines
+        symbol_ratio = (
+            len(re.findall(r'[^a-zA-Z0-9\s]', line))
+            / max(len(line), 1)
+        )
 
-        if symbol_ratio > 0.4:
+        if symbol_ratio > 0.40:
             continue
 
-        # Remove duplicate lines
-        if normalized in seen:
+        # Remove nav labels
+        if _is_nav_label(line):
             continue
 
-        seen.add(normalized)
+        # Exact duplicate removal
+        if normalized in seen_exact:
+            continue
 
-        cleaned.append(line)
+        seen_exact.add(normalized)
 
-    # Paragraph duplication
-    unique = []
+        # Fuzzy duplicate removal
+        if len(line) > 40:
 
-    for para in cleaned:
+            if _fuzzy_duplicate(normalized, seen_fuzzy):
+                continue
 
-        duplicate = False
+            seen_fuzzy.append(normalized)
 
-        for existing in unique:
+            # Keep memory small
+            if len(seen_fuzzy) > 300:
+                seen_fuzzy = seen_fuzzy[-200:]
 
-            similarity = SequenceMatcher(
-                None,
-                para,
-                existing
-            ).ratio()
+        filtered.append(line)
 
-            if similarity > 0.9:
-                duplicate = True
-                break
+    # Rebuild clean paragraphs
+    result_lines = []
 
-        if not duplicate:
-            unique.append(para)
+    prev_blank = False
 
-    return "\n".join(unique)
+    for line in filtered:
+
+        if line == '':
+
+            if not prev_blank:
+                result_lines.append('')
+
+            prev_blank = True
+
+        else:
+            result_lines.append(line)
+            prev_blank = False
+
+    return '\n'.join(result_lines).strip()
 
 # Take url as input
 
@@ -136,12 +262,15 @@ data = scrape_result.model_dump()
 markdown = data.get("markdown", "")
 
 # Clean markdown
+
 cleaned_text = clean_markdown(markdown)
 
 # Add cleaned content
+
 data["cleaned_markdown"] = cleaned_text
 
 # Save final output
+
 with open("cleaned_data.json", "w") as f:
     json.dump(data, f, indent=2)
 
