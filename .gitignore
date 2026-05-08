@@ -1,5 +1,4 @@
 .env
-data.json
 __pycache__/
 .venv/
 venv/
