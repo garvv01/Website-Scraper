@@ -18,7 +18,7 @@ def scrape_url(url, retries=3):
             result = app.scrape(
                 url,
                 formats=["markdown"],
-                only_main_content=True
+                only_main_content=False
             )
 
             data = result.model_dump()

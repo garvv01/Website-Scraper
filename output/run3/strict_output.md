@@ -189,14 +189,15 @@ Feb 27, 2026](https://www.tatvasoft.com/outsourcing/2021/12/how-to-create-an-edu
 
 [\\
 \\
-List of Different Types of Educational Software\\
+What Is EdTech And Why Is It Important?\\
 \\
-Mar 12, 2026](https://www.tatvasoft.com/outsourcing/2021/12/types-of-educational-software.html)
+Mar 2, 2026](https://www.tatvasoft.com/outsourcing/2022/06/what-is-edtech.html)
 
 [\\
 \\
-Features of Top-Quality Educational Software\\
+List of Different Types of Educational Software\\
 \\
+Mar 12, 2026](https://www.tatvasoft.com/outsourcing/2021/12/types-of-educational-software.html)
 
 ## Subscribe to our Newsletter
 

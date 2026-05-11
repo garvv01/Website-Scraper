@@ -1,13 +1,11 @@
-from scraper import scrape_url
-from strict_cleaner import clean_markdown as strict_clean
-from soft_cleaner import clean_markdown as soft_clean
-
+from scrapers.scraper import scrape_url
+from cleaners.strict_cleaner import clean_markdown as strict_clean
+from cleaners.soft_cleaner import clean_markdown as soft_clean
 from pathlib import Path
+from utils.link_discovery import discover_links
 
 URLS = [
-    "https://www.schoolnetindia.com/blog/6-reasons-why-edtech-companies-in-india-struggle/",
-    "https://www.iipa.org.in/GyanKOSH/posts/the-dark-side-a-look-at-indias-edtech-landscape",
-    "https://www.tatvasoft.com/outsourcing/2022/07/edtech-challenges.html"
+    "https://www.sequoiacap.com"
 ]
 
 output_dir = Path("output")
@@ -19,6 +17,15 @@ for idx, url in enumerate(URLS, start=1):
     print(f"Processing {url}")
 
     markdown = scrape_url(url)
+
+    print(markdown[:3000])
+
+    discovered_links = discover_links(
+        markdown,
+        url
+    )
+
+    print(discovered_links)
 
     strict_output = strict_clean(markdown)
 
